@@ -1,0 +1,11 @@
+# Dataset, crawled thumbnails and model weights are kept out of the repository
+data_csv/
+thumbnail/
+*.csv
+*.pkl
+*.pt
+*.pth
+
+.ipynb_checkpoints/
+__pycache__/
+.venv*/

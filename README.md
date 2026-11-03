@@ -1,58 +1,87 @@
-# MSP - Nhận diện Clickbait đa mô hình bằng Soft Prompt-tuning
+# Multimodal Clickbait Detection
 
-Đây là dự án triển khai mô hình **MSP (Multimodal Soft Prompt-tuning)** cho bài toán **nhận diện tiêu đề giật gân (clickbait)** với ngôn ngữ Anh. Mô hình sử dụng dữ liệu đa phương thức gồm **văn bản**, **hình ảnh**, và **cấu trúc cú pháp**, kết hợp với cơ chế **prompt mềm** để tối ưu hiệu quả học với dữ liệu ít (few-shot).
+Detecting clickbait news articles from their **title, description, and thumbnail image**. The model combines three encoders, a text encoder with learnable soft prompts, an image encoder, and a syntactic graph encoder over the title, and fuses them for binary classification. A weighted ensemble of three trained variants gives the final prediction.
 
-## Bài toán
+Course project for Natural Language Processing at HUFLIT (2025), trained on a Google Colab A100.
 
-Xác định xem một bài đăng (gồm tiêu đề và hình ảnh) có phải là **clickbait** hay không.
+## Results
 
-#### Chương trình nằm tại file _'NLP final.ipynb'_
+Test set: 1,706 articles (856 non-clickbait, 850 clickbait).
 
-## Kiến trúc mô hình
+| Model | Accuracy | F1 | Recall | PR-AUC |
+| --- | --- | --- | --- | --- |
+| Weighted ensemble of variants 2, 3, 4 | **82.83%** | **82.73%** | 82.59% | 0.907 |
 
-Mô hình MSP gồm 3 thành phần chính:
+Validation results of each trained variant (3,410 articles):
 
-1. **Semantic Text Encoder**
+| Variant | Batch size | Learning rate | Fusion | Loss | Val accuracy | Val F1 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 24 | 5e-4 | gated | focal | 79.97% | 80.19% |
+| 1 | 32 | 5e-4 | concat | focal | 79.74% | 79.77% |
+| **2** | 32 | 2e-4 | gated | focal | **81.47%** | **81.99%** |
+| **3** | 32 | 5e-4 | gated | balanced BCE | **80.82%** | 79.22% |
+| **4** | 32 | 2e-4 | gated | focal | **80.67%** | 80.90% |
 
-   - Sử dụng: `RoBERTa-large`
-   - Đầu vào: tiêu đề/bài viết dạng văn bản
-   - Đầu ra: embedding ngữ nghĩa
+The three variants with the highest validation accuracy (2, 3, 4) form the ensemble.
 
-2. **Visual Encoder**
+## Dataset
 
-   - Sử dụng: `CLIP` (mô hình ảnh pretrained)
-   - Đầu vào: ảnh đại diện bài đăng
-   - Đầu ra: embedding hình ảnh
+- **Source:** English-language news articles from Irish and UK publishers (e.g. thesun.ie, irishmirror.ie, irishexaminer.com, bbc.com), each annotated with a `clickbait_level` from 1 to 5.
+- **Labels:** level 1 is *not clickbait* (0), levels 4–5 are *clickbait* (1). Levels 2–3 are left out to keep the two classes clearly separated.
+- **Balancing:** all 8,613 level 4–5 articles are kept and the same number of level-1 articles is sampled at random. After dropping rows with a missing title, description, or thumbnail, **17,051 articles** remain (8,551 / 8,500).
+- **Thumbnails:** crawled from each article page (`og:image`, falling back to the first `<img>`), then resized to 200×200.
+- **Split:** stratified 70 / 20 / 10 → train 11,935 · validation 3,410 · test 1,706.
 
-3. **Syntactic Graph Encoder**
-   - Sử dụng: `Graph Attention Network (GAT)`
-   - Đầu vào: biểu đồ quan hệ cú pháp và POS tag
-   - Đầu ra: embedding cú pháp
+## Model
 
-Mỗi modal được nối với một **prompt mềm (soft prompt)** rồi đi vào module **kết hợp đa modal (cross-modal fusion)**. Sau đó, phần đầu ra được đưa qua **head phân loại** để dự đoán nhãn.
+```
+ title + description ──► RoBERTa-large  (+5 soft prompt tokens) ──► 256-d ─┐
+ thumbnail           ──► CLIP ViT-B/32  (+soft prompt, conv head) ──► 256-d ─┼─► fusion ──► clickbait logit
+ title               ──► spaCy parse ──► GAT over dependency graph ──► 256-d ─┘
+```
 
-## Kết quả đạt được
+1. **Text encoder:** `roberta-large` over the title and description (max 128 tokens). Five learnable prompt vectors are prepended to the input embeddings, and the output is mean-pooled over prompt and text tokens.
+2. **Image encoder:** CLIP `clip-vit-base-patch32` vision tower. A learnable prompt vector is added to the patch-token sequence, followed by a 1×1 convolution, average pooling, and a linear projection.
+3. **Syntactic encoder:** the title is parsed with spaCy (`en_core_web_sm`). Fine-grained POS tags are embedded as node features, dependency arcs are the edges, and a Graph Attention layer (`GATConv`) encodes the graph, which is then mean-pooled.
+4. **Fusion and head:** the three 256-d vectors are concatenated and passed to either
+   - **concat:** an MLP classifier, or
+   - **gated:** a sigmoid gate that re-weights each feature before the MLP.
 
-### Toàn bộ dữ liệu huấn luyện (full train)
+All encoders are fine-tuned end-to-end for 3 epochs with AdamW, using either **focal loss** or **class-balanced BCE**.
 
-- Mô hình đạt **acc=0.8283, f1=0.8273** trên tập kiểm tra đầy đủ.
+**Ensemble:** each model votes with its thresholded prediction, weighted by a softmax over its validation accuracy (temperature 0.3). PR-AUC uses the weighted average of the predicted probabilities.
 
-### Few-shot (ít mẫu huấn luyện)
+## Repository structure
 
-Khi huấn luyện với số mẫu ít trên mỗi lớp (k-shot), mô hình MSP vẫn giữ được hiệu suất ổn định:
+```
+.
+├── NLP final.ipynb    # Full pipeline: crawling, preprocessing, model, training, evaluation
+├── requirements.txt
+└── README.md
+```
 
-| Số mẫu mỗi lớp (k-shot) | Accuracy | F1 Score |
-| ----------------------- | -------- | -------- |
-| 5                       | ~0.80    | ~0.75    |
-| 10                      | ~0.80    | ~0.78    |
-| 20                      | ~0.86    | ~0.85    |
+The notebook was written for Google Colab and reads and writes under `/content/drive/MyDrive/Colab Notebooks/NLP/project/`. Its main sections are:
 
-![Biểu đồ accuracy và F1 theo k-shot](data_csv/output.png)
+| Cells | Step |
+| --- | --- |
+| 0 | Read the raw CSVs, map labels, crawl and resize thumbnails |
+| 2–9 | Filter incomplete rows, balance classes, split the data |
+| 12 | Model definition, training loop, ensemble evaluation |
+| 16–20 | Train the five variants |
+| 22–25 | Load the best three and evaluate the ensemble on the test set |
+| 30–31 | Predict a single article |
 
-_Biểu đồ: Kết quả trên tập test với các thiết lập few-shot_
-
-## Cài đặt
+## Setup
 
 ```bash
 pip install -r requirements.txt
+python -m spacy download en_core_web_sm
 ```
+
+Training used a single A100 (Colab). RoBERTa-large and CLIP are both fine-tuned, so a GPU with 24 GB or more of memory is recommended.
+
+## Limitations
+
+- The dataset files, crawled thumbnails, and trained weights are not included in this repository, so results cannot be reproduced from the repository alone.
+- The share of clickbait differs strongly between publishers (most thesun.ie articles are labelled clickbait, while most irishexaminer.com and rte.ie articles are not), so part of what the model learns is publisher writing style.
+- The notebook's k-shot cells (27–28) score the fully trained ensemble on 10–40 sampled test articles. They are not few-shot training experiments and are not reported as results.
