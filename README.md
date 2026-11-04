@@ -8,21 +8,11 @@ Course project for Natural Language Processing at HUFLIT (2025), trained on a Go
 
 Test set: 1,706 articles (856 non-clickbait, 850 clickbait).
 
-| Model | Accuracy | F1 | Recall | PR-AUC |
-| --- | --- | --- | --- | --- |
-| Weighted ensemble of variants 2, 3, 4 | **82.83%** | **82.73%** | 82.59% | 0.907 |
+Weighted ensemble of the three variants with the highest validation accuracy:
 
-Validation results of each trained variant (3,410 articles):
-
-| Variant | Batch size | Learning rate | Fusion | Loss | Val accuracy | Val F1 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 0 | 24 | 5e-4 | gated | focal | 79.97% | 80.19% |
-| 1 | 32 | 5e-4 | concat | focal | 79.74% | 79.77% |
-| **2** | 32 | 2e-4 | gated | focal | **81.47%** | **81.99%** |
-| **3** | 32 | 5e-4 | gated | balanced BCE | **80.82%** | 79.22% |
-| **4** | 32 | 2e-4 | gated | focal | **80.67%** | 80.90% |
-
-The three variants with the highest validation accuracy (2, 3, 4) form the ensemble.
+| Accuracy | F1 | Recall | PR-AUC |
+| --- | --- | --- | --- |
+| **82.83%** | **82.73%** | 82.59% | 0.907 |
 
 ## Dataset
 
